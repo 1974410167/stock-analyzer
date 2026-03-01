@@ -10,13 +10,32 @@ try:
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from matplotlib import rcParams
+    from matplotlib.font_manager import FontProperties
     
-    # 配置中文字体
-    rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei', 'DejaVu Sans']
-    rcParams['axes.unicode_minus'] = False
+    # 使用系统已安装的中文字体 (WenQuanYi Zen Hei)
+    chinese_font = 'WenQuanYi Zen Hei'
+    
+    try:
+        # 配置 matplotlib 使用中文字体
+        rcParams['font.sans-serif'] = [chinese_font, 'DejaVu Sans']
+        rcParams['axes.unicode_minus'] = False
+        
+        # 测试字体
+        fp = FontProperties(family=chinese_font)
+        test_text = fp.get_name()
+        
+        print(f"✅ 中文字体已加载：{chinese_font}")
+        HAS_CHINESE_FONT = True
+    except Exception as e:
+        print(f"⚠️  字体加载失败：{e}，使用英文标签")
+        rcParams['font.sans-serif'] = ['DejaVu Sans']
+        rcParams['axes.unicode_minus'] = False
+        HAS_CHINESE_FONT = False
+    
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
+    HAS_CHINESE_FONT = False
 
 
 def generate_xiaohongshu_content(analysis: dict, advice: dict, risk_result: dict) -> dict[str, Any]:
@@ -43,7 +62,6 @@ def generate_caption(analysis: dict, advice: dict, risk_result: dict) -> str:
     rising = analysis['rising_positions']
     falling = analysis['falling_positions']
     
-    # 情绪判断
     if total_pnl_pct > 10:
         mood = "🎉 爽翻了！"
         emoji = "💰"
@@ -146,13 +164,8 @@ def generate_xiaohongshu_charts(analysis: dict, advice: dict) -> dict[str, str]:
     
     charts = {}
     
-    # 图表 1：持仓分布环形图
     charts['allocation'] = _create_donut_chart(analysis, output_dir)
-    
-    # 图表 2：盈亏对比
     charts['pnl'] = _create_horizontal_pnl_chart(analysis, advice, output_dir)
-    
-    # 图表 3：行业分布
     charts['sector'] = _create_sector_chart(analysis, output_dir)
     
     return charts
@@ -163,43 +176,33 @@ def _classify_sector(symbol: str, description: str) -> str:
     desc_lower = description.lower()
     symbol_upper = symbol.upper()
     
-    # 半导体/芯片
     if any(kw in desc_lower for kw in ['intel', 'amd', 'nvidia', 'semi', 'chip']):
         return '半导体'
     
-    # 软件/互联网
     if any(kw in desc_lower for kw in ['microsoft', 'meta', 'software', 'internet', 'platform']):
         return '软件/互联网'
     
-    # 电动车/汽车
     if 'tesla' in desc_lower or symbol_upper == 'TSLA':
         return '电动车'
     
-    # 电商
     if 'amazon' in desc_lower or symbol_upper == 'AMZN':
         return '电商'
     
-    # 通信/芯片设计
     if 'qualcomm' in desc_lower or symbol_upper == 'QCOM':
         return '通信芯片'
     
-    # 加密货币相关
     if 'micro strategy' in desc_lower or symbol_upper == 'MSTR':
         return '加密货币'
     
-    # 金融/券商
     if 'broker' in desc_lower or 'interactive brokers' in desc_lower or symbol_upper == 'IBKR':
         return '金融'
     
-    # 国债/固定收益
     if 'treasury' in desc_lower or symbol_upper == 'SGOV':
         return '固定收益'
     
-    # 中概股
     if 'xiaomi' in desc_lower or 'china' in desc_lower or symbol_upper == 'XIACY':
         return '中概股'
     
-    # ARM/芯片设计
     if 'arm' in desc_lower and symbol_upper == 'ARM':
         return '半导体'
     
@@ -209,7 +212,6 @@ def _classify_sector(symbol: str, description: str) -> str:
 def _create_sector_chart(analysis: dict, output_dir: str) -> str:
     """创建行业分布饼图"""
     
-    # 分类统计
     sector_data = {}
     for pos in analysis['symbol_analysis']:
         sector = _classify_sector(pos['symbol'], pos['description'])
@@ -217,16 +219,20 @@ def _create_sector_chart(analysis: dict, output_dir: str) -> str:
             sector_data[sector] = 0
         sector_data[sector] += pos['position_value']
     
-    # 排序
     sorted_sectors = sorted(sector_data.items(), key=lambda x: x[1], reverse=True)
     sectors = [s[0] for s in sorted_sectors]
     values = [s[1] for s in sorted_sectors]
     
-    # 配色
     colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', 
               '#F7DC6F', '#BB8FCE', '#82E0AA', '#F5B7B1', '#D7BDE2']
     
     plt.figure(figsize=(10, 10))
+    
+    # 使用中文字体
+    textprops = {'fontsize': 11, 'weight': 'bold'}
+    if HAS_CHINESE_FONT:
+        from matplotlib.font_manager import FontProperties
+        textprops['fontproperties'] = FontProperties(family='WenQuanYi Zen Hei')
     
     wedges, texts, autotexts = plt.pie(
         values,
@@ -235,19 +241,17 @@ def _create_sector_chart(analysis: dict, output_dir: str) -> str:
         colors=colors[:len(sectors)],
         startangle=90,
         pctdistance=0.85,
-        textprops={'fontsize': 11, 'weight': 'bold'}
+        textprops=textprops
     )
     
-    # 环形
     centre_circle = plt.Circle((0, 0), 0.70, fc='white')
     plt.gca().add_artist(centre_circle)
     
-    # 中间文字
     total = sum(values)
     plt.text(0, 0, f"Total\n${total/1000:.1f}K", 
              ha='center', va='center', fontsize=16, weight='bold')
     
-    plt.title('Sector Allocation', fontsize=18, weight='bold', pad=20)
+    plt.title('行业分布', fontsize=18, weight='bold', pad=20)
     plt.axis('equal')
     
     output_path = os.path.join(output_dir, 'sector_allocation.png')
@@ -266,6 +270,11 @@ def _create_donut_chart(analysis: dict, output_dir: str) -> str:
     
     plt.figure(figsize=(10, 10))
     
+    textprops = {'fontsize': 12, 'weight': 'bold'}
+    if HAS_CHINESE_FONT:
+        from matplotlib.font_manager import FontProperties
+        textprops['fontproperties'] = FontProperties(family='WenQuanYi Zen Hei')
+    
     wedges, texts, autotexts = plt.pie(
         values,
         labels=symbols,
@@ -273,7 +282,7 @@ def _create_donut_chart(analysis: dict, output_dir: str) -> str:
         colors=colors[:len(symbols)],
         startangle=90,
         pctdistance=0.85,
-        textprops={'fontsize': 12, 'weight': 'bold'}
+        textprops=textprops
     )
     
     centre_circle = plt.Circle((0, 0), 0.70, fc='white')
@@ -283,7 +292,7 @@ def _create_donut_chart(analysis: dict, output_dir: str) -> str:
     plt.text(0, 0, f"Total\n${total/1000:.1f}K", 
              ha='center', va='center', fontsize=16, weight='bold')
     
-    plt.title('Portfolio Allocation', fontsize=18, weight='bold', pad=20)
+    plt.title('持仓分布', fontsize=18, weight='bold', pad=20)
     plt.axis('equal')
     
     output_path = os.path.join(output_dir, 'allocation_donut.png')
@@ -321,8 +330,16 @@ def _create_horizontal_pnl_chart(analysis: dict, advice: dict, output_dir: str) 
         )
     
     plt.axhline(y=2.5, color='gray', linestyle='--', linewidth=1, alpha=0.5)
-    plt.xlabel('P&L (USD)', fontsize=12)
-    plt.title('Best vs Worst Performers', fontsize=16, weight='bold', pad=20)
+    
+    if HAS_CHINESE_FONT:
+        from matplotlib.font_manager import FontProperties
+        fp = FontProperties(family='WenQuanYi Zen Hei')
+        plt.xlabel('盈亏 (USD)', fontsize=12, fontproperties=fp)
+        plt.title('最佳 vs 最差', fontsize=16, weight='bold', pad=20, fontproperties=fp)
+    else:
+        plt.xlabel('P&L (USD)', fontsize=12)
+        plt.title('Best vs Worst', fontsize=16, weight='bold', pad=20)
+    
     plt.yticks(range(len(symbols)), symbols, fontsize=11)
     plt.grid(axis='x', alpha=0.3)
     
