@@ -24,9 +24,9 @@ def analyze_price_change_reasons(position: dict[str, Any]) -> dict[str, Any]:
     实际应用中应该调用新闻 API
     """
     symbol = position.get('symbol', '')
-    pnl_pct = position.get('pnl_pct', 0)
+    pnl_pct = position.get('pnl_pct', 0) if position.get('pnl_pct') is not None else 0
     description = position.get('description', '')
-    trend = position.get('trend', '')
+    trend = position.get('trend', 'flat')
 
     reasons = []
 
