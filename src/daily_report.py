@@ -17,6 +17,7 @@ from risk_analyzer import calculate_risk_metrics, format_risk_report
 from news_analyzer import analyze_all_positions
 from chart_generator import create_portfolio_charts
 from detailed_analyzer import analyze_all_top_and_worst
+from xiaohongshu_generator import generate_xiaohongshu_content
 
 
 def format_complete_report(analysis: dict, advice: dict, risk_result: dict, detailed: dict = None) -> str:
@@ -91,7 +92,7 @@ def format_complete_report(analysis: dict, advice: dict, risk_result: dict, deta
 def main():
     """主函数：生成完整报告并发送"""
     config = load_config()
-    total_steps = 7
+    total_steps = 8
     current_step = 0
     
     try:
@@ -137,37 +138,56 @@ def main():
         detailed = analyze_all_top_and_worst(advice)
         print(f"    ✅ 完成 {len(detailed['top_performers']) + len(detailed['worst_performers'])} 只股票分析")
         
-        # 6. 格式化报告
+        # 6. 小红书内容
+        current_step += 1
+        print(f"[{current_step}/{total_steps}] 📕 生成小红书内容...")
+        xiaohongshu = generate_xiaohongshu_content(analysis, advice, risk_result)
+        print(f"    ✅ 小红书文案 + {len(xiaohongshu['charts'])} 张图表")
+        
+        # 7. 格式化报告
         current_step += 1
         print(f"[{current_step}/{total_steps}] 📝 格式化报告...")
         report_text = format_complete_report(analysis, advice, risk_result, detailed)
         print(f"    ✅ 报告格式化完成")
         
-        # 7. 保存报告
+        # 8. 保存报告
         current_step += 1
         print(f"[{current_step}/{total_steps}] 💾 保存报告文件...")
         
-        # 7. 保存报告
+        # 8. 保存报告
         current_step += 1
         print(f"[{current_step}/{total_steps}] 💾 保存报告文件...")
         output_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
         os.makedirs(output_dir, exist_ok=True)
         
+        # 保存标准报告
         report_file = os.path.join(output_dir, 'report.txt')
         with open(report_file, 'w', encoding='utf-8') as f:
             f.write(report_text)
         
+        # 保存小红书内容
+        xiaohongshu_file = os.path.join(output_dir, 'xiaohongshu.txt')
+        with open(xiaohongshu_file, 'w', encoding='utf-8') as f:
+            f.write(xiaohongshu['full_content'])
+        
+        # 保存 JSON
         json_file = os.path.join(output_dir, 'report.json')
         with open(json_file, 'w', encoding='utf-8') as f:
             json.dump({
                 'analysis': analysis,
                 'advice': advice,
                 'risk': risk_result,
-                'charts': charts,
+                'detailed': detailed,
+                'xiaohongshu': {
+                    'caption': xiaohongshu['caption'],
+                    'hashtags': xiaohongshu['hashtags'],
+                    'charts': list(xiaohongshu['charts'].keys())
+                },
                 'timestamp': datetime.now().isoformat()
             }, f, indent=2, ensure_ascii=False)
         
         print(f"    ✅ 报告已保存")
+        print(f"    ✅ 小红书内容已保存")
         
         # 完成
         print()
@@ -177,6 +197,13 @@ def main():
         print(f"📊 总市值：${analysis['total_value']:,.2f}")
         print(f"💰 总盈亏：+${analysis['total_pnl']:,.2f} ({analysis['total_pnl_pct']:.2f}%)")
         print(f"📈 图表：{len(charts)} 张")
+        print(f"📕 小红书：已生成")
+        print()
+        print("📄 文件列表:")
+        print(f"   • data/report.txt - 标准报告")
+        print(f"   • data/xiaohongshu.txt - 小红书文案")
+        print(f"   • data/charts/ - 标准图表")
+        print(f"   • data/xiaohongshu/ - 小红书图表")
         print()
         
         return 0
