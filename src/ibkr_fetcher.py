@@ -27,85 +27,55 @@ def _parse_xml(xml_text: str) -> ET.Element:
         raise FlexServiceError("Failed to parse IBKR Flex XML response.") from exc
 
 
-def request_reference_code(config: FlexConfig) -> str:
-    response = requests.get(
-        config.send_request_url,
-        params={"t": config.token, "q": config.query_id, "v": config.api_version},
-        timeout=config.timeout_seconds,
-    )
-    response.raise_for_status()
+def fetch_flex_statement(config: FlexConfig) -> str:
+    """
+    从 IBKR Flex Query 获取数据
 
+    步骤：
+    1. 发送请求获取 Reference Code 和下载 URL
+    2. 等待 IBKR 服务器准备数据
+    3. 使用下载 URL 获取 CSV 数据
+    """
+    # 第一步：发送请求，获取下载凭证
+    print(f"🚀 正在向 IBKR 发送生成报表请求 (Query ID: {config.query_id})...")
+
+    request_url = f"{config.send_request_url}?t={config.token}&q={config.query_id}&v={config.api_version}"
+    response = requests.get(request_url, timeout=config.timeout_seconds)
+
+    if response.status_code != 200:
+        raise FlexServiceError(f"请求失败，状态码: {response.status_code}")
+
+    # 解析返回的 XML
     root = _parse_xml(response.text)
-    status = (_get_text(root, "Status") or "").lower()
-    if status != "success":
-        message = _get_text(root, "ErrorMessage") or "Unknown IBKR Flex request error."
-        raise FlexServiceError(message)
+    status = _get_text(root, "Status")
+
+    if status != "Success":
+        error_message = _get_text(root, "ErrorMessage") or "未知错误"
+        raise FlexServiceError(f"IBKR Flex Query 失败: {error_message}")
 
     reference_code = _get_text(root, "ReferenceCode")
+    download_url = _get_text(root, "Url")
+
     if not reference_code:
-        raise FlexServiceError("IBKR Flex did not return a reference code.")
+        raise FlexServiceError("IBKR 未返回 Reference Code")
 
-    return reference_code
+    if not download_url:
+        raise FlexServiceError("IBKR 未返回下载 URL")
 
+    print(f"✅ 报表生成成功！拿到下载凭证: {reference_code}")
 
-def fetch_statement_xml(config: FlexConfig) -> str:
-    reference_code = request_reference_code(config)
+    # 第二步：等待 IBKR 服务器准备数据
+    print(f"⏳ 等待 {config.wait_seconds} 秒钟让 IBKR 服务器准备文件...")
+    time.sleep(config.wait_seconds)
 
-    for attempt in range(1, config.max_poll_attempts + 1):
-        response = requests.get(
-            config.get_statement_url,
-            params={"t": config.token, "q": reference_code, "v": config.api_version},
-            timeout=config.timeout_seconds,
-        )
-        response.raise_for_status()
+    # 第三步：使用凭证下载数据
+    print("📥 正在下载数据...")
+    dl_url = f"{download_url}?q={reference_code}&t={config.token}&v={config.api_version}"
+    csv_response = requests.get(dl_url, timeout=config.timeout_seconds)
 
-        root = _parse_xml(response.text)
-        status = (_get_text(root, "Status") or "").lower()
-        if not status:
-            return response.text
+    if csv_response.status_code != 200:
+        raise FlexServiceError(f"下载失败，状态码: {csv_response.status_code}")
 
-        if status == "success":
-            return response.text
+    print(f"🎉 数据下载成功！大小: {len(csv_response.text)} 字节")
 
-        message = _get_text(root, "ErrorMessage") or ""
-        if "generation in progress" not in message.lower():
-            raise FlexServiceError(message or "Unknown IBKR Flex statement error.")
-
-        if attempt < config.max_poll_attempts:
-            time.sleep(config.poll_interval_seconds)
-
-    raise FlexServiceError("IBKR Flex statement generation timed out.")
-
-
-def extract_trade_rows(statement_xml: str) -> list[dict[str, Any]]:
-    root = _parse_xml(statement_xml)
-    rows: list[dict[str, Any]] = []
-
-    for trade in root.findall(".//Trade"):
-        symbol = trade.attrib.get("symbol")
-        quantity = _to_float(trade.attrib.get("quantity"))
-        trade_price = _to_float(trade.attrib.get("tradePrice"))
-
-        if not symbol or quantity is None or trade_price is None:
-            continue
-
-        rows.append(
-            {
-                "symbol": symbol,
-                "quantity": quantity,
-                "trade_price": trade_price,
-                "buy_sell": trade.attrib.get("buySell"),
-                "trade_date": trade.attrib.get("tradeDate"),
-            }
-        )
-
-    return rows
-
-
-def _to_float(value: str | None) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        return None
+    return csv_response.text
