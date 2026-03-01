@@ -16,9 +16,10 @@ from position_parser import extract_position_data, parse_positions
 from risk_analyzer import calculate_risk_metrics, format_risk_report
 from news_analyzer import analyze_all_positions
 from chart_generator import create_portfolio_charts
+from detailed_analyzer import analyze_all_top_and_worst
 
 
-def format_complete_report(analysis: dict, advice: dict, risk_result: dict) -> str:
+def format_complete_report(analysis: dict, advice: dict, risk_result: dict, detailed: dict = None) -> str:
     """格式化完整报告"""
     lines = []
     lines.append("# 📈 股票持仓分析报告")
@@ -80,13 +81,17 @@ def format_complete_report(analysis: dict, advice: dict, risk_result: dict) -> s
         lines.append(f"| 整体风险 | {'✅' if a['overall']['rating'] == 'low' else '⚠️'} {a['overall']['rating'].upper()} | {a['overall']['advice']} |")
         lines.append("")
     
+    # 详细分析（表现最佳和最差）
+    if detailed:
+        lines.append(detailed['formatted'])
+    
     return "\n".join(lines)
 
 
 def main():
     """主函数：生成完整报告并发送"""
     config = load_config()
-    total_steps = 6
+    total_steps = 7
     current_step = 0
     
     try:
@@ -126,13 +131,23 @@ def main():
         charts = create_portfolio_charts(parsed, chart_dir)
         print(f"    ✅ 图表生成完成")
         
-        # 5. 格式化报告
+        # 5. 详细分析
+        current_step += 1
+        print(f"[{current_step}/{total_steps}] 🔍 深度分析重点股票...")
+        detailed = analyze_all_top_and_worst(advice)
+        print(f"    ✅ 完成 {len(detailed['top_performers']) + len(detailed['worst_performers'])} 只股票分析")
+        
+        # 6. 格式化报告
         current_step += 1
         print(f"[{current_step}/{total_steps}] 📝 格式化报告...")
-        report_text = format_complete_report(analysis, advice, risk_result)
+        report_text = format_complete_report(analysis, advice, risk_result, detailed)
         print(f"    ✅ 报告格式化完成")
         
-        # 6. 保存报告
+        # 7. 保存报告
+        current_step += 1
+        print(f"[{current_step}/{total_steps}] 💾 保存报告文件...")
+        
+        # 7. 保存报告
         current_step += 1
         print(f"[{current_step}/{total_steps}] 💾 保存报告文件...")
         output_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
