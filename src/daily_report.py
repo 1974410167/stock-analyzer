@@ -1,10 +1,8 @@
-#!/usr/bin/env python3
-"""
-每日股票分析报告 - 完整版
-包含：持仓分析、风险分析、图表生成、飞书推送
-"""
-import sys
+from __future__ import annotations
+
 import os
+import sys
+import json
 from datetime import datetime
 
 # 添加项目路径
@@ -24,13 +22,13 @@ def format_complete_report(analysis: dict, advice: dict, risk_result: dict) -> s
     """格式化完整报告"""
     lines = []
     lines.append("# 📈 股票持仓分析报告")
-    lines.append(f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%M')} (北京时间)")
+    lines.append(f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (北京时间)")
     lines.append("")
     
     # 整体情况
     lines.append("## 📊 整体情况")
-    lines.append(f"| 指标 | 数值 |")
-    lines.append(f"|------|------|")
+    lines.append("| 指标 | 数值 |")
+    lines.append("|------|------|")
     lines.append(f"| 持仓数量 | {analysis['total_positions']} 只 |")
     lines.append(f"| 上涨 | {analysis['rising_positions']} 只 📈 |")
     lines.append(f"| 下跌 | {analysis['falling_positions']} 只 📉 |")
@@ -42,7 +40,7 @@ def format_complete_report(analysis: dict, advice: dict, risk_result: dict) -> s
     lines.append("## 🏆 表现最佳 (前 3 名)")
     for i, p in enumerate(advice['top_performers'], 1):
         medal = ["🥇", "🥈", "🥉"][i-1]
-        lines.append(f"{medal} **{p['symbol']}** - {p['description']}: +${p['pnl']:,.2f} (**+{p['pnl_pct']:.2f}%**)")
+        lines.append(f"{medal} **{p['symbol']}** - {p['description']}: +${p['pnl']:,.2f} (**+{p['pnl_pct']:.2f}%)")
     lines.append("")
     
     # 表现最差
@@ -70,9 +68,10 @@ def format_complete_report(analysis: dict, advice: dict, risk_result: dict) -> s
     if risk_result.get('metrics'):
         m = risk_result['metrics']
         a = risk_result['analysis']
-        lines.append("## ⚠️ 投资组合风险分析")
+        lines.append("## ⚠️  投资组合风险分析")
         lines.append("")
-        lines.append(f"### 整体风险评级：{'🟢' if a['overall']['rating'] == 'low' else '🟡' if a['overall']['rating'] == 'medium' else '🔴'} **{a['overall']['rating'].upper()}**")
+        emoji_map = {'low': '🟢', 'medium': '🟡', 'high': '🔴'}
+        lines.append(f"### 整体风险评级：{emoji_map.get(a['overall']['rating'], '⚪')} **{a['overall']['rating'].upper()}**")
         lines.append("")
         lines.append("| 风险类型 | 评级 | 详情 |")
         lines.append("|----------|------|------|")
@@ -87,37 +86,55 @@ def format_complete_report(analysis: dict, advice: dict, risk_result: dict) -> s
 def main():
     """主函数：生成完整报告并发送"""
     config = load_config()
+    total_steps = 6
+    current_step = 0
     
     try:
-        print("🚀 开始生成每日股票分析报告...")
+        print("="*60)
+        print("🚀 开始生成每日股票分析报告")
+        print("="*60)
+        print(f"⏱️  预计耗时：约 10-15 秒")
+        print()
         
         # 1. 获取数据
-        print("📥 从 IBKR 获取数据...")
+        current_step += 1
+        print(f"[{current_step}/{total_steps}] 📥 从 IBKR 获取数据...")
         csv_data = fetch_flex_statement(config)
         positions = extract_position_data(csv_data)
         parsed = parse_positions(positions)
-        print(f"✅ 成功解析 {len(parsed)} 个持仓")
+        print(f"    ✅ 成功解析 {len(parsed)} 个持仓")
         
         # 2. 分析
-        print("📊 分析持仓数据...")
+        current_step += 1
+        print(f"[{current_step}/{total_steps}] 📊 分析持仓数据...")
         analysis = analyse_positions(parsed)
         advice = generate_advice(analysis)
+        print(f"    ✅ 分析完成，上涨{analysis['rising_positions']}只，下跌{analysis['falling_positions']}只")
         
         # 3. 风险分析
-        print("⚠️  计算风险指标...")
+        current_step += 1
+        print(f"[{current_step}/{total_steps}] ⚠️  计算风险指标...")
         risk_result = calculate_risk_metrics(parsed)
+        risk_rating = risk_result.get('metrics', {}).get('risk_ratings', {}).get('overall_risk', 'unknown')
+        print(f"    ✅ 风险评级：{risk_rating.upper()}")
         
         # 4. 生成图表
-        print("📈 生成可视化图表...")
+        current_step += 1
+        print(f"[{current_step}/{total_steps}] 📈 生成可视化图表 (3 张)...")
         chart_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'charts')
         os.makedirs(chart_dir, exist_ok=True)
         charts = create_portfolio_charts(parsed, chart_dir)
+        print(f"    ✅ 图表生成完成")
         
         # 5. 格式化报告
-        print("📝 格式化报告...")
+        current_step += 1
+        print(f"[{current_step}/{total_steps}] 📝 格式化报告...")
         report_text = format_complete_report(analysis, advice, risk_result)
+        print(f"    ✅ 报告格式化完成")
         
         # 6. 保存报告
+        current_step += 1
+        print(f"[{current_step}/{total_steps}] 💾 保存报告文件...")
         output_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
         os.makedirs(output_dir, exist_ok=True)
         
@@ -126,7 +143,6 @@ def main():
             f.write(report_text)
         
         json_file = os.path.join(output_dir, 'report.json')
-        import json
         with open(json_file, 'w', encoding='utf-8') as f:
             json.dump({
                 'analysis': analysis,
@@ -136,21 +152,22 @@ def main():
                 'timestamp': datetime.now().isoformat()
             }, f, indent=2, ensure_ascii=False)
         
-        print(f"✅ 报告已保存: {report_file}")
-        print(f"✅ 图表已保存: {chart_dir}")
+        print(f"    ✅ 报告已保存")
         
-        # 7. 返回成功状态
-        print("\n🎉 报告生成完成！")
-        print("\n📄 报告预览:")
+        # 完成
+        print()
         print("="*60)
-        print(report_text[:2000])
-        print("...")
+        print("🎉 报告生成完成！")
         print("="*60)
+        print(f"📊 总市值：${analysis['total_value']:,.2f}")
+        print(f"💰 总盈亏：+${analysis['total_pnl']:,.2f} ({analysis['total_pnl_pct']:.2f}%)")
+        print(f"📈 图表：{len(charts)} 张")
+        print()
         
         return 0
         
     except Exception as exc:
-        print(f"❌ 生成报告失败: {exc}")
+        print(f"\n❌ 生成报告失败：{exc}")
         import traceback
         traceback.print_exc()
         return 1
