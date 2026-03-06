@@ -18,52 +18,103 @@ from news_analyzer import analyze_all_positions
 from chart_generator import create_portfolio_charts
 from detailed_analyzer import analyze_all_top_and_worst
 from xiaohongshu_generator import generate_xiaohongshu_content
+import subprocess
 
 
-def format_complete_report(analysis: dict, advice: dict, risk_result: dict, detailed: dict = None) -> str:
-    """格式化完整报告"""
+def send_to_feishu_with_charts(report_text: str, chart_files: list, output_dir: str):
+    """发送报告和图表到飞书"""
+    try:
+        # 使用 OpenClaw message 工具发送
+        # 先发送文字报告
+        print(f"    📤 发送报告到飞书...")
+        
+        # 调用 OpenClaw CLI 发送消息
+        cmd = [
+            'openclaw', 'message', 'send',
+            '--channel', 'feishu',
+            '--target', 'user:ou_1f0dfac373311ed5ab5cb9de75539dcc',
+            '--message', report_text[:2000]  # 限制长度
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            print(f"    ✅ 报告已发送")
+        else:
+            print(f"    ⚠️  发送失败：{result.stderr}")
+        
+        # 发送图表
+        for chart_path in chart_files:
+            if os.path.exists(chart_path):
+                print(f"    📤 发送图表：{os.path.basename(chart_path)}")
+                cmd = [
+                    'openclaw', 'message', 'send',
+                    '--channel', 'feishu',
+                    '--target', 'user:ou_1f0dfac373311ed5ab5cb9de75539dcc',
+                    '--media', chart_path
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    print(f"    ✅ 图表已发送：{os.path.basename(chart_path)}")
+                else:
+                    print(f"    ⚠️  图表发送失败：{result.stderr}")
+        
+    except Exception as e:
+        print(f"    ⚠️  发送失败：{e}")
+
+
+def format_daily_change_report(analysis: dict, advice: dict, positions_with_daily: list, risk_result: dict, detailed: dict = None) -> str:
+    """格式化每日涨跌报告（重点突出今日变化）"""
     lines = []
-    lines.append("# 📈 股票持仓分析报告")
+    lines.append("# 📈 股票持仓 - 今日涨跌报告")
     lines.append(f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (北京时间)")
     lines.append("")
     
     # 整体情况
-    lines.append("## 📊 整体情况")
+    lines.append("## 📊 今日整体表现")
     lines.append("| 指标 | 数值 |")
     lines.append("|------|------|")
     lines.append(f"| 持仓数量 | {analysis['total_positions']} 只 |")
-    lines.append(f"| 上涨 | {analysis['rising_positions']} 只 📈 |")
-    lines.append(f"| 下跌 | {analysis['falling_positions']} 只 📉 |")
+    lines.append(f"| **今日上涨** | {analysis['rising_positions']} 只 📈 |")
+    lines.append(f"| **今日下跌** | {analysis['falling_positions']} 只 📉 |")
     lines.append(f"| 总市值 | **${analysis['total_value']:,.2f}** |")
-    lines.append(f"| 总盈亏 | **+${analysis['total_pnl']:,.2f} ({analysis['total_pnl_pct']:.2f}%)** |")
+    lines.append(f"| **今日涨跌** | **+${analysis['total_pnl']:,.2f} ({analysis['total_pnl_pct']:.2f}%)** |")
+    lines.append("")
+    
+    # 🎯 今日涨跌详情（按今日涨跌幅排序）
+    lines.append("## 🎯 今日涨跌详情（每只股票）")
+    lines.append("")
+    lines.append("| 股票 | **今日涨跌** | 今日% | 总盈亏 | 占净值 |")
+    lines.append("|------|-----------|-------|--------|--------|")
+    
+    # 按今日涨跌排序
+    sorted_positions = sorted(positions_with_daily, key=lambda x: x.get('today_change_pct', 0), reverse=True)
+    for pos in sorted_positions:
+        symbol = pos.get('symbol', 'N/A')
+        today_change = pos.get('today_change', 0)
+        today_change_pct = pos.get('today_change_pct', 0)
+        total_pnl = pos.get('pnl', 0)
+        percent_nav = pos.get('percent_of_nav', 0)
+        emoji = "📈" if today_change > 0 else "📉" if today_change < 0 else "➡️"
+        change_str = f"+${today_change:,.2f}" if today_change > 0 else f"${today_change:,.2f}"
+        lines.append(f"| {emoji} {symbol} | **{change_str}** | {today_change_pct:+.2f}% | ${total_pnl:,.2f} | {percent_nav:.2f}% |")
     lines.append("")
     
     # 表现最佳
-    lines.append("## 🏆 表现最佳 (前 3 名)")
+    lines.append("## 🏆 表现最佳 (总盈亏前 3 名)")
     for i, p in enumerate(advice['top_performers'], 1):
         medal = ["🥇", "🥈", "🥉"][i-1]
-        lines.append(f"{medal} **{p['symbol']}** - {p['description']}: +${p['pnl']:,.2f} (**+{p['pnl_pct']:.2f}%)")
+        lines.append(f"{medal} **{p['symbol']}**: +${p['pnl']:,.2f} (**+{p['pnl_pct']:.2f}%)")
     lines.append("")
     
     # 表现最差
-    lines.append("## 📉 表现最差 (后 3 名)")
+    lines.append("## 📉 表现最差 (总盈亏后 3 名)")
     for p in advice['worst_performers']:
-        lines.append(f"- **{p['symbol']}** - {p['description']}: ${p['pnl']:,.2f} ({p['pnl_pct']:.2f}%)")
+        lines.append(f"- **{p['symbol']}**: ${p['pnl']:,.2f} ({p['pnl_pct']:.2f}%)")
     lines.append("")
     
     # 整体建议
     lines.append("## 💡 整体建议")
     lines.append(advice['overall'])
-    lines.append("")
-    
-    # 持仓详情
-    lines.append("## 📋 持仓详情")
-    lines.append("")
-    lines.append("| 股票 | 描述 | 盈亏 | 盈亏% | 占净值 |")
-    lines.append("|------|------|------|-------|--------|")
-    for pos in analysis['symbol_analysis']:
-        emoji = "📈" if pos['pnl'] > 0 else "📉" if pos['pnl'] < 0 else "➡️"
-        lines.append(f"| {emoji} {pos['symbol']} | {pos['description']} | ${pos['pnl']:,.2f} | {pos['pnl_pct']:.2f}% | {pos['percent_of_nav']:.2f}% |")
     lines.append("")
     
     # 风险分析
@@ -124,37 +175,46 @@ def main():
         risk_rating = risk_result.get('metrics', {}).get('risk_ratings', {}).get('overall_risk', 'unknown')
         print(f"    ✅ 风险评级：{risk_rating.upper()}")
         
-        # 4. 生成图表
+        # 4. 计算每日涨跌
+        current_step += 1
+        print(f"[{current_step}/{total_steps}] 📊 计算每日涨跌...")
+        from daily_change import get_yesterday_report_path, load_yesterday_prices, calculate_daily_change
+        yesterday_path = get_yesterday_report_path()
+        if yesterday_path:
+            yesterday_prices = load_yesterday_prices(yesterday_path)
+            positions_with_daily = calculate_daily_change(parsed, yesterday_prices)
+            print(f"    ✅ 已计算每日涨跌（对比昨日）")
+        else:
+            positions_with_daily = parsed
+            print(f"    ⚠️  未找到昨日数据，使用总盈亏")
+        
+        # 5. 生成图表
         current_step += 1
         print(f"[{current_step}/{total_steps}] 📈 生成可视化图表 (3 张)...")
         chart_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'charts')
         os.makedirs(chart_dir, exist_ok=True)
         charts = create_portfolio_charts(parsed, chart_dir)
-        print(f"    ✅ 图表生成完成")
+        print(f"    ✅ 图表生成完成：{list(charts.keys())}")
         
-        # 5. 详细分析
+        # 6. 详细分析
         current_step += 1
         print(f"[{current_step}/{total_steps}] 🔍 深度分析重点股票...")
         detailed = analyze_all_top_and_worst(advice)
         print(f"    ✅ 完成 {len(detailed['top_performers']) + len(detailed['worst_performers'])} 只股票分析")
         
-        # 6. 小红书内容
+        # 7. 小红书内容
         current_step += 1
         print(f"[{current_step}/{total_steps}] 📕 生成小红书内容...")
         xiaohongshu = generate_xiaohongshu_content(analysis, advice, risk_result)
         print(f"    ✅ 小红书文案 + {len(xiaohongshu['charts'])} 张图表")
         
-        # 7. 格式化报告
+        # 8. 格式化报告
         current_step += 1
         print(f"[{current_step}/{total_steps}] 📝 格式化报告...")
-        report_text = format_complete_report(analysis, advice, risk_result, detailed)
+        report_text = format_daily_change_report(analysis, advice, positions_with_daily, risk_result, detailed)
         print(f"    ✅ 报告格式化完成")
         
-        # 8. 保存报告
-        current_step += 1
-        print(f"[{current_step}/{total_steps}] 💾 保存报告文件...")
-        
-        # 8. 保存报告
+        # 9. 保存报告
         current_step += 1
         print(f"[{current_step}/{total_steps}] 💾 保存报告文件...")
         output_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
@@ -189,20 +249,27 @@ def main():
         print(f"    ✅ 报告已保存")
         print(f"    ✅ 小红书内容已保存")
         
+        # 10. 发送图表到飞书
+        current_step += 1
+        print(f"[{current_step}/{total_steps}] 📤 发送图表到飞书...")
+        chart_files = [charts[key] for key in charts.keys()]
+        send_to_feishu_with_charts(report_text, chart_files, output_dir)
+        print(f"    ✅ 已发送到飞书")
+        
         # 完成
         print()
         print("="*60)
-        print("🎉 报告生成完成！")
+        print("🎉 报告生成并发送完成！")
         print("="*60)
         print(f"📊 总市值：${analysis['total_value']:,.2f}")
         print(f"💰 总盈亏：+${analysis['total_pnl']:,.2f} ({analysis['total_pnl_pct']:.2f}%)")
-        print(f"📈 图表：{len(charts)} 张")
+        print(f"📈 图表：{len(charts)} 张 - 已发送")
         print(f"📕 小红书：已生成")
         print()
         print("📄 文件列表:")
         print(f"   • data/report.txt - 标准报告")
         print(f"   • data/xiaohongshu.txt - 小红书文案")
-        print(f"   • data/charts/ - 标准图表")
+        print(f"   • data/charts/ - 标准图表 (已发送)")
         print(f"   • data/xiaohongshu/ - 小红书图表")
         print()
         
