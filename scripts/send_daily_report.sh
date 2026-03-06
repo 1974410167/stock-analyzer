@@ -16,7 +16,12 @@ python src/daily_report.py
 
 if [ $? -eq 0 ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ 报告生成成功"
-    
+
+    # 生成发送标记文件（供 heartbeat/巡检使用）
+    SENT_FILE="data/report-$(date '+%Y-%m-%d')-sent.txt"
+    cp -f data/report.txt "$SENT_FILE" 2>/dev/null || echo "sent at $(date '+%F %T')" > "$SENT_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ 已写入发送标记: $SENT_FILE"
+
     # 显示文件列表
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] 📄 生成的文件:"
     echo "  标准报告：data/report.txt"
